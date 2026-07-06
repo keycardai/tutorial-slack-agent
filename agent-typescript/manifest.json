@@ -1,6 +1,6 @@
 {
     "display_information": {
-        "name": "MCP Agent",
+        "name": "Keycard Tutorial Agent",
         "description": "AI agent that answers questions using Keycard-protected MCP servers",
         "background_color": "#1a1d21"
     },
@@ -11,7 +11,7 @@
             "messages_tab_read_only_enabled": false
         },
         "bot_user": {
-            "display_name": "mcp-agent",
+            "display_name": "keycard-tutorial-agent",
             "always_online": true
         }
     },

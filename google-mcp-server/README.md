@@ -28,7 +28,7 @@ In the [Keycard Console](https://console.keycard.ai):
    - `https://www.googleapis.com/auth/documents`
    - `https://www.googleapis.com/auth/gmail.modify`
    - `https://www.googleapis.com/auth/spreadsheets`
-2. **Register this MCP server** in the zone, with its public URL (for local development, `http://localhost:8000`).
+2. **Register this MCP server** as a resource in the zone. Use the identifier `http://localhost:8000/mcp` for local development (including the `/mcp` path: that is the exact resource clients request a token for). Set `MCP_SERVER_URL` to the base URL `http://localhost:8000`; the server appends `/mcp` when it advertises the resource.
 3. **Create client credentials** for the MCP server and note the client ID and secret.
 4. **Grant the server access** to the Google resource.
 
@@ -91,7 +91,7 @@ On first boot the server generates a key pair in `KEYCARD_WEB_IDENTITY_KEY_STORA
 
 ## Deploy
 
-The server is a single container listening on `$PORT`, so any container platform works. Set the environment variables from the table above, with `MCP_SERVER_URL` set to the deployment's public URL (and the same URL registered in Keycard).
+The server is a single container listening on `$PORT`, so any container platform works. Set the environment variables from the table above, with `MCP_SERVER_URL` set to the deployment's public base URL. Register the resource in Keycard as that URL plus `/mcp` (the form the server advertises and clients request).
 
 - **Render**: create a Web Service from this repo using the Dockerfile. Render injects `PORT` automatically.
 - **Fly.io**: `fly launch` picks up the Dockerfile. Set secrets with `fly secrets set KEYCARD_ISSUER=... KEYCARD_CLIENT_ID=... KEYCARD_CLIENT_SECRET=...`. If you use `web_identity`, mount a volume for the key storage directory.
