@@ -20,7 +20,6 @@ import { BaseOAuthClientProvider } from "@keycardai/mcp/client/auth/providers/ba
 import type {
 	OAuthClientInformationFull,
 	OAuthClientMetadata,
-	OAuthMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FileAuthStore } from "./storage.js";
 
@@ -97,25 +96,5 @@ export class SlackUserOAuthProvider extends BaseOAuthClientProvider {
 
 	override async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
 		await this.hooks.onAuthorizationUrl(authorizationUrl);
-	}
-
-	/**
-	 * When a provider defines addClientAuthentication, the MCP SDK uses it
-	 * INSTEAD of its default token-request authentication, and the base
-	 * class implementation is a no-op for public clients. Without this
-	 * override the token exchange would be sent without a client_id, which
-	 * RFC 6749 section 4.1.3 requires for public clients.
-	 */
-	override async addClientAuthentication(
-		_headers: Headers,
-		params: URLSearchParams,
-		_authorizationServerUrl: string | URL,
-		_metadata?: OAuthMetadata,
-	): Promise<void> {
-		const clientInformation = this.clientInformation();
-		if (!clientInformation) {
-			throw new Error("Client information not available for authentication");
-		}
-		params.set("client_id", clientInformation.client_id);
 	}
 }
