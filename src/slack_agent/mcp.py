@@ -1,0 +1,67 @@
+"""keycardai-mcp wiring: one ClientManager, one client per Slack user.
+
+The keycardai-mcp SDK does the heavy lifting for Keycard-protected MCP
+servers. On a 401 it discovers the protected-resource metadata (RFC 9728),
+registers itself as a public OAuth client via Dynamic Client Registration
+(RFC 7591), and runs the authorization-code flow with PKCE. No client
+secret is stored in this app; the MCP server side holds the confidential
+credentials for its upstream providers.
+
+Three pieces:
+
+- SQLiteBackend persists per-user tokens and pending auth state on disk,
+  so users only authorize once per server.
+- StarletteAuthCoordinator handles the OAuth redirect. It does not run its
+  own HTTP server; we mount its completion endpoint on our Starlette app
+  at /oauth/callback (see main.py).
+- ClientManager hands out one Client per context id. We use
+  "slack:<user_id>" so every Slack user gets isolated token storage.
+"""
+
+from __future__ import annotations
+
+from keycardai.mcp.client import Client, ClientManager, SQLiteBackend, StarletteAuthCoordinator
+
+from slack_agent.config import ServerEntry
+
+
+def build_manager(
+    servers: list[ServerEntry],
+    redirect_uri: str,
+    db_path: str,
+) -> tuple[ClientManager, StarletteAuthCoordinator]:
+    """Create the shared ClientManager and its auth coordinator."""
+    backend = SQLiteBackend(db_path)
+    coordinator = StarletteAuthCoordinator(backend=backend, redirect_uri=redirect_uri)
+    manager = ClientManager(
+        servers={
+            entry.key: {"url": entry.url, "auth": {"type": "oauth"}}
+            for entry in servers
+        },
+        auth_coordinator=coordinator,
+    )
+    return manager, coordinator
+
+
+def context_id_for(slack_user_id: str) -> str:
+    return f"slack:{slack_user_id}"
+
+
+def slack_user_from_context(context_id: str) -> str | None:
+    """Inverse of context_id_for. Returns None for non-Slack contexts."""
+    if context_id.startswith("slack:"):
+        return context_id.removeprefix("slack:")
+    return None
+
+
+async def get_user_client(manager: ClientManager, slack_user_id: str) -> Client:
+    """Get (or create) this user's MCP client and connect it.
+
+    connect() never raises for ordinary failures. Sessions that need OAuth
+    move to an auth-pending state; check client.get_auth_challenges()
+    afterwards to see if the user must authorize. Repeat calls are cheap:
+    already-healthy sessions are left alone.
+    """
+    client = await manager.get_client(context_id_for(slack_user_id))
+    await client.connect()
+    return client

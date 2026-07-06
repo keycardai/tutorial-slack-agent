@@ -1,0 +1,21 @@
+# Environments and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Token storage
+data/
+*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

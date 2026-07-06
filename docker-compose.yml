@@ -1,0 +1,13 @@
+services:
+  agent:
+    build: .
+    env_file: .env
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # Persist per-user OAuth tokens across container restarts.
+      - agent-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  agent-data:
