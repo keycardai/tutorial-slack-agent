@@ -6,6 +6,9 @@
  * are missing, so a bare `npm start` tells you exactly what to set.
  */
 
+// Loads .env into process.env; values already present in the environment win.
+import "dotenv/config";
+
 export interface ServerEntry {
 	/** Short name used as the tool prefix the model sees (google__list_events). */
 	key: string;
@@ -47,7 +50,10 @@ function parseServers(raw: string): ServerEntry[] {
 	} catch (error) {
 		fail(
 			"MCP_SERVERS is not valid JSON. Expected an array like:\n" +
-				'  [{"key": "google", "url": "https://your-google-mcp.example.com/mcp"}]\n' +
+				'  [{"key": "google", "url": "http://localhost:8000/mcp"}]\n' +
+				"JSON needs double quotes around keys and values, with no " +
+				"backslash escapes and no quotes around the whole value.\n" +
+				`Received: ${raw}\n` +
 				`Parse error: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
@@ -81,7 +87,7 @@ export function loadSettings(): Settings {
 		fail(
 			`Missing required environment variables: ${missing.join(", ")}\n` +
 				"Copy .env.example to .env, fill in the values, then run:\n" +
-				"  npm run build && node --env-file=.env dist/main.js",
+				"  npm start",
 		);
 	}
 

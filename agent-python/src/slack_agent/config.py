@@ -11,6 +11,11 @@ import json
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+# Values already present in the environment win over .env entries.
+load_dotenv()
+
 REQUIRED_VARS = (
     "SLACK_BOT_TOKEN",
     "SLACK_APP_TOKEN",
@@ -54,7 +59,7 @@ def load_settings() -> Settings:
             "Missing required environment variables: "
             + ", ".join(missing)
             + "\nCopy .env.example to .env, fill in the values, then run:"
-            + "\n  uv run --env-file .env slack-agent"
+            + "\n  uv run slack-agent"
         )
 
     raw_servers = os.environ["MCP_SERVERS"]
@@ -63,7 +68,10 @@ def load_settings() -> Settings:
     except json.JSONDecodeError as exc:
         raise SystemExit(
             "MCP_SERVERS is not valid JSON. Expected an array like:\n"
-            '  [{"key": "google", "url": "https://your-google-mcp.example.com/mcp"}]\n'
+            '  [{"key": "google", "url": "http://localhost:8000/mcp"}]\n'
+            "JSON needs double quotes around keys and values, with no "
+            "backslash escapes and no quotes around the whole value.\n"
+            f"Received: {raw_servers}\n"
             f"Parse error: {exc}"
         ) from exc
 

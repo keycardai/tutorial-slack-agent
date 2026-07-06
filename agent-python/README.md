@@ -101,7 +101,7 @@ The `key` becomes the tool-name prefix the model sees (`google__list_events`).
 
 ```bash
 uv sync
-uv run --env-file .env slack-agent
+uv run slack-agent
 ```
 
 You should see uvicorn listening on port 3000 and Bolt's
@@ -139,9 +139,9 @@ event and `im:history` scope) and that Socket Mode connected in the logs.
 After changing the manifest, reinstall the app to your workspace.
 
 **"Missing required environment variables" on startup.**
-The message lists exactly which ones. Make sure you ran with
-`uv run --env-file .env slack-agent` (plain `uv run slack-agent` does not
-load `.env`).
+The message lists exactly which ones. The agent loads `.env` from the
+directory you run it in, so run it from `agent-python/` where your `.env`
+lives.
 
 **Tool calls fail with 401 after previously working.**
 The stored token may have expired or been revoked in Keycard. Delete
