@@ -8,16 +8,35 @@ services:
     environment:
       PORT: "8000"
 
-  agent:
-    build: ./agent
+  # Pick ONE agent (they share the same Slack app, so running both would
+  # answer every message twice): docker compose --profile python up
+  agent-python:
+    profiles: ["python"]
+    build: ./agent-python
     ports:
       - "3000:3000"
     env_file:
-      - ./agent/.env
+      - ./agent-python/.env
     environment:
       PORT: "3000"
       # Inside the compose network the agent reaches the MCP server by
       # service name; the OAuth callback stays on localhost:3000.
+      MCP_SERVERS: '[{"key":"google","url":"http://google-mcp-server:8000/mcp"}]'
+    volumes:
+      - agent-data:/app/data
+    depends_on:
+      - google-mcp-server
+
+  # docker compose --profile typescript up
+  agent-typescript:
+    profiles: ["typescript"]
+    build: ./agent-typescript
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./agent-typescript/.env
+    environment:
+      PORT: "3000"
       MCP_SERVERS: '[{"key":"google","url":"http://google-mcp-server:8000/mcp"}]'
     volumes:
       - agent-data:/app/data

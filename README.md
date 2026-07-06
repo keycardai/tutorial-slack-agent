@@ -15,8 +15,13 @@ application, credentials) that both services need.
 
 | Directory | Service |
 | --- | --- |
-| [`agent/`](agent/) | The Slack bot: Bolt (Socket Mode) + a small Claude tool loop + a Keycard MCP client with per-user OAuth sessions. Needs no Keycard secret. |
+| [`agent-python/`](agent-python/) | The Slack bot in Python: Bolt (Socket Mode) + a small Claude tool loop + the Keycard MCP client (`keycardai-mcp` `ClientManager`) with per-user OAuth sessions. Needs no Keycard secret. |
+| [`agent-typescript/`](agent-typescript/) | The same bot in TypeScript: Bolt (Socket Mode) + a small Claude tool loop + the official MCP SDK client wired through `@keycardai/mcp`'s `BaseOAuthClientProvider` with per-user OAuth sessions. Needs no Keycard secret. |
 | [`google-mcp-server/`](google-mcp-server/) | A Keycard-protected MCP server exposing Google Calendar, Drive, Docs, Gmail, and Sheets tools. Exchanges each user's token for a Google API token. |
+
+Both agents implement the same flow; pick the language you'd build in. Run
+only one at a time: they share the same Slack app, so running both answers
+every message twice.
 
 ```
 Slack user ──▶ agent (MCP client, per-user PKCE) ──▶ google-mcp-server ──▶ Google API
@@ -36,16 +41,23 @@ uv run python -m google_mcp_server
 ```
 
 ```bash
-cd agent
+# Python agent
+cd agent-python
 cp .env.example .env   # Slack tokens + Anthropic key, see tutorial Part 4
 uv sync
 uv run slack-agent
+
+# or the TypeScript agent
+cd agent-typescript
+cp .env.example .env
+npm install
+npm run dev
 ```
 
-Or run both with Docker Compose (after filling in both `.env` files):
+Or with Docker Compose (after filling in the `.env` files), picking one agent:
 
 ```bash
-docker compose up
+docker compose --profile python up      # or --profile typescript
 ```
 
 Each service's own README covers its configuration and troubleshooting.
