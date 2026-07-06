@@ -19,3 +19,10 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# Web identity (WIF) key storage
+server_keys/
+mcp_keys/
+
+# Testing
+.pytest_cache/

@@ -1,13 +1,28 @@
 services:
-  agent:
-    build: .
-    env_file: .env
+  google-mcp-server:
+    build: ./google-mcp-server
     ports:
-      - "${PORT:-3000}:3000"
+      - "8000:8000"
+    env_file:
+      - ./google-mcp-server/.env
+    environment:
+      PORT: "8000"
+
+  agent:
+    build: ./agent
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./agent/.env
+    environment:
+      PORT: "3000"
+      # Inside the compose network the agent reaches the MCP server by
+      # service name; the OAuth callback stays on localhost:3000.
+      MCP_SERVERS: '[{"key":"google","url":"http://google-mcp-server:8000/mcp"}]'
     volumes:
-      # Persist per-user OAuth tokens across container restarts.
       - agent-data:/app/data
-    restart: unless-stopped
+    depends_on:
+      - google-mcp-server
 
 volumes:
   agent-data:
