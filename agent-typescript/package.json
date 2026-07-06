@@ -1,0 +1,29 @@
+{
+	"name": "tutorial-slack-agent",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Minimal Slack AI agent that connects to Keycard-protected MCP servers with per-user OAuth (TypeScript variant)",
+	"license": "MIT",
+	"type": "module",
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build": "tsc",
+		"start": "node dist/main.js",
+		"dev": "tsx src/main.ts"
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.110.0",
+		"@keycardai/mcp": "0.11.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
+		"@slack/bolt": "^4.7.3",
+		"express": "^5.2.1"
+	},
+	"devDependencies": {
+		"@types/express": "^5.0.6",
+		"@types/node": "^20.19.24",
+		"tsx": "^4.23.0",
+		"typescript": "^5.9.3"
+	}
+}
