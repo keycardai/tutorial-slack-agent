@@ -18,6 +18,7 @@
 		"@keycardai/mcp": "0.11.1",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@slack/bolt": "^4.7.3",
+		"dotenv": "^17.4.2",
 		"express": "^5.2.1"
 	},
 	"devDependencies": {

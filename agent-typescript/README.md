@@ -116,7 +116,7 @@ The `key` becomes the tool-name prefix the model sees (`google__list_events`).
 ```bash
 npm install
 npm run build
-node --env-file=.env dist/main.js
+npm start
 ```
 
 You should see the callback server listening on port 3000 and
@@ -125,12 +125,12 @@ You should see the callback server listening on port 3000 and
 For development with instant restarts on save:
 
 ```bash
-npx tsx --env-file=.env src/main.ts
+npm run dev
 ```
 
-(`npm run dev` runs the same entry point via tsx, reading configuration from
-the environment; `node --env-file` and `tsx --env-file` are the easiest ways
-to load `.env`.)
+(`npm run dev` runs the same entry point via tsx. The agent loads `.env`
+from the directory you run it in; values already set in the environment
+take precedence.)
 
 ## 4. Test
 
@@ -165,7 +165,7 @@ After changing the manifest, reinstall the app to your workspace.
 
 **"Missing required environment variables" on startup.**
 The message lists exactly which ones. Make sure you loaded `.env`, e.g.
-`node --env-file=.env dist/main.js` (a bare `npm start` reads only the
+`npm start` (a bare `npm start` reads only the
 process environment).
 
 **Tool calls fail with 401 after previously working.**
