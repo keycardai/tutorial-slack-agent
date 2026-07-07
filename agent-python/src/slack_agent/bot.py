@@ -24,6 +24,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_agent.agent import run_agent
 from slack_agent.config import Settings
+from slack_agent.history import build_conversation, fetch_history
 from slack_agent.mcp import get_user_client, slack_user_from_context
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,20 @@ def _format_auth_prompt(challenges: list[dict]) -> str:
 def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthropic) -> AsyncApp:
     app = AsyncApp(token=settings.slack_bot_token)
 
-    async def answer(user_id: str, text: str, say, thread_ts: str | None) -> None:
+    # The bot's own user id distinguishes its messages in fetched history.
+    # Resolved lazily via auth.test on the first turn, then cached.
+    bot_user_id: str | None = None
+
+    async def get_bot_user_id() -> str | None:
+        nonlocal bot_user_id
+        if bot_user_id is None:
+            auth = await app.client.auth_test()
+            bot_user_id = auth.get("user_id")
+        return bot_user_id
+
+    async def answer(
+        user_id: str, text: str, say, channel: str, ts: str, thread_ts: str | None
+    ) -> None:
         text = MENTION_RE.sub("", text).strip()
         if not text:
             await say(text="Ask me something, e.g. `what's on my calendar today?`", thread_ts=thread_ts)
@@ -97,8 +111,18 @@ def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthro
             )
             return
 
+        # Memory is just the recent Slack conversation replayed to the model.
+        # If Slack won't give it to us (missing scope, rate limit), answer
+        # from the current message alone rather than failing the turn.
         try:
-            reply = await run_agent(anthropic, client, text)
+            history = await fetch_history(app.client, channel, thread_ts)
+            messages = build_conversation(history, text, await get_bot_user_id(), ts)
+        except Exception:
+            logger.info("History fetch failed, answering without context", exc_info=True)
+            messages = [{"role": "user", "content": text}]
+
+        try:
+            reply = await run_agent(anthropic, client, messages)
         except Exception:
             logger.exception("Agent turn failed for user %s", user_id)
             reply = "Something went wrong on my end. Check the agent logs and try again."
@@ -107,7 +131,7 @@ def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthro
     @app.event("app_mention")
     async def on_mention(event, say):
         thread_ts = event.get("thread_ts") or event["ts"]
-        await answer(event["user"], event.get("text", ""), say, thread_ts)
+        await answer(event["user"], event.get("text", ""), say, event["channel"], event["ts"], thread_ts)
 
     @app.event("message")
     async def on_message(event, say):
@@ -117,6 +141,6 @@ def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthro
             return
         if event.get("bot_id") or event.get("subtype"):
             return
-        await answer(event["user"], event.get("text", ""), say, thread_ts=None)
+        await answer(event["user"], event.get("text", ""), say, event["channel"], event["ts"], thread_ts=None)
 
     return app

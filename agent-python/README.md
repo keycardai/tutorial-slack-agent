@@ -15,8 +15,8 @@ The demo flow:
    calendar events by calling MCP tools with *your* credentials.
 
 This is a teaching repo, distilled from a production agent. It deliberately has
-no streaming, no memory, no risk tiers, no hot reload. Read it top to bottom in
-one sitting.
+no streaming, no database, no risk tiers, no hot reload. Read it top to bottom
+in one sitting.
 
 ## Architecture
 
@@ -57,8 +57,22 @@ confidential party that holds provider credentials.
 | `src/slack_agent/config.py` | Reads and validates env vars, fails fast with a clear message |
 | `src/slack_agent/mcp.py` | ClientManager + StarletteAuthCoordinator + SQLiteBackend wiring |
 | `src/slack_agent/agent.py` | The ~100 line Anthropic tool loop |
+| `src/slack_agent/history.py` | Fetches the recent Slack thread and converts it to Anthropic messages |
 | `src/slack_agent/bot.py` | Slack handlers, auth-link message, auth-complete DM |
 | `src/slack_agent/main.py` | Runs uvicorn (OAuth callback) and Socket Mode together |
+
+## Conversation memory
+
+The agent keeps no conversation state of its own. On every turn it re-reads
+the last 12 messages of the Slack conversation (the DM, or the channel
+thread) and replays them to Claude. Slack is the transcript: there is
+nothing to persist, nothing to migrate, and follow-up questions keep
+working across restarts.
+
+This needs the `channels:history` bot scope to read channel threads
+(`im:history` already covers DMs). If you created the Slack app before this
+scope was in `manifest.json`, add it and reinstall the app to your
+workspace.
 
 ## Prerequisites
 

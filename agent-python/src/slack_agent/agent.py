@@ -9,7 +9,8 @@ Flow per Slack message:
    client, append the results, and loop.
 3. Stop when the model answers in plain text or the iteration cap is hit.
 
-No streaming, no memory, no persona. That is the point of this repo.
+No streaming, no persona, no conversation store. Memory is the recent
+Slack thread, fetched by the caller and passed in as the message list.
 """
 
 from __future__ import annotations
@@ -76,13 +77,18 @@ async def _execute_tool(
     return text, bool(result.isError)
 
 
-async def run_agent(anthropic: AsyncAnthropic, client: Client, user_text: str) -> str:
-    """Answer one user message, executing MCP tools as needed."""
+async def run_agent(
+    anthropic: AsyncAnthropic, client: Client, messages: list[dict[str, Any]]
+) -> str:
+    """Answer the latest user message, executing MCP tools as needed.
+
+    The caller supplies the conversation so far (recent Slack history plus
+    the current question, ending with a user message). The tool loop
+    appends tool_use and tool_result turns to that same list.
+    """
     tool_infos = await client.list_tools()
     tools, routes = _tool_definitions(client, tool_infos)
     system = SYSTEM_PROMPT.format(today=datetime.now(UTC).strftime("%A, %Y-%m-%d"))
-
-    messages: list[dict[str, Any]] = [{"role": "user", "content": user_text}]
 
     for _ in range(MAX_ITERATIONS):
         response = await anthropic.messages.create(

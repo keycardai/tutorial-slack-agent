@@ -10,7 +10,8 @@
  *    MCP clients, append the results, and loop.
  * 3. Stop when the model answers in plain text or the iteration cap is hit.
  *
- * No streaming, no memory, no persona. That is the point of this repo.
+ * No streaming, no persona, no conversation store. Memory is the recent
+ * Slack thread, fetched by the caller and passed in as the message list.
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -98,18 +99,22 @@ async function executeTool(
 	};
 }
 
-/** Answer one user message, executing MCP tools as needed. */
+/**
+ * Answer the latest user message, executing MCP tools as needed.
+ *
+ * The caller supplies the conversation so far (recent Slack history plus
+ * the current question, ending with a user message). The tool loop
+ * appends tool_use and tool_result turns to that same list.
+ */
 export async function runAgent(
 	anthropic: Anthropic,
 	sessions: ReadySession[],
-	userText: string,
+	messages: Anthropic.Messages.MessageParam[],
 ): Promise<string> {
 	const { definitions, routes } = await collectTools(sessions);
 	const today = new Date().toISOString().slice(0, 10);
 	const weekday = new Date().toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
 	const system = SYSTEM_PROMPT.replace("{today}", `${weekday}, ${today}`);
-
-	const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: userText }];
 
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		const response = await anthropic.messages.create({
