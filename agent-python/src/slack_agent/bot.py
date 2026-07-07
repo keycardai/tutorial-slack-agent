@@ -58,6 +58,14 @@ class AuthCompletionNotifier:
             logger.exception("Failed to send auth-complete DM to %s", user_id)
 
 
+def _session_operational(client, server_name: str | None) -> bool:
+    """True if the named server's session is connected and usable."""
+    if not server_name:
+        return False
+    session = client.sessions.get(server_name)
+    return bool(session and session.is_operational)
+
+
 def _format_auth_prompt(challenges: list[dict]) -> str:
     lines = [
         "Before I can help, you need to connect your account(s). "
@@ -85,9 +93,17 @@ def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthro
 
         client = await get_user_client(manager, user_id)
 
-        challenges = await client.get_auth_challenges()
-        if challenges:
-            await say(text=_format_auth_prompt(challenges), thread_ts=thread_ts)
+        # A completed authorization can leave a stale auth-pending record
+        # behind (the SDK clears it in a background task that may be
+        # cancelled), so the live session state is the source of truth: a
+        # server only needs auth when its session is not operational.
+        pending = [
+            challenge
+            for challenge in await client.get_auth_challenges()
+            if not _session_operational(client, challenge.get("server"))
+        ]
+        if pending:
+            await say(text=_format_auth_prompt(pending), thread_ts=thread_ts)
             return
 
         if not any(session.is_operational for session in client.sessions.values()):
