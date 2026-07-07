@@ -46,6 +46,7 @@ Copy `.env.example` to `.env` and fill in your values:
 | `KEYCARD_CREDENTIAL_TYPE` | No | `client_secret` (default) or `web_identity` |
 | `KEYCARD_WEB_IDENTITY_KEY_STORAGE_DIR` | No | Key storage directory for `web_identity` (default `./server_keys`) |
 | `MCP_SERVER_URL` | Yes | Public URL of this server, as registered in Keycard (default `http://localhost:8000`) |
+| `GOOGLE_API_RESOURCE` | Yes | Resource identifier of the Google API as registered in Keycard. Must match the Keycard resource exactly; the catalog Google Calendar resource is `https://www.googleapis.com/calendar/v3`. A mismatch fails at the first tool call with "Token exchange failed" |
 | `PORT` | No | Port to listen on (default `8000`) |
 
 \* Required with the default `client_secret` credential type.
