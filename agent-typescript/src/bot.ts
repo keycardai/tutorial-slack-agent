@@ -16,6 +16,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import bolt from "@slack/bolt";
 import { runAgent } from "./agent.js";
 import type { Settings } from "./config.js";
+import { buildConversation, fetchHistory } from "./history.js";
 import { isReady, type McpManager, type ServerSession } from "./mcp.js";
 
 const { App } = bolt;
@@ -56,10 +57,24 @@ export function buildApp(
 		deferInitialization: true,
 	});
 
+	// The bot's own user id distinguishes its messages in fetched history.
+	// Resolved lazily via auth.test on the first turn, then cached.
+	let botUserId: string | undefined;
+
+	async function getBotUserId(): Promise<string | undefined> {
+		if (!botUserId) {
+			const auth = await app.client.auth.test();
+			botUserId = auth.user_id;
+		}
+		return botUserId;
+	}
+
 	async function answer(
 		userId: string,
 		rawText: string,
 		say: Say,
+		channel: string,
+		ts: string,
 		threadTs: string | undefined,
 	): Promise<void> {
 		const text = rawText.replace(MENTION_RE, "").trim();
@@ -88,9 +103,21 @@ export function buildApp(
 			return;
 		}
 
+		// Memory is just the recent Slack conversation replayed to the model.
+		// If Slack won't give it to us (missing scope, rate limit), answer
+		// from the current message alone rather than failing the turn.
+		let messages: Anthropic.Messages.MessageParam[];
+		try {
+			const history = await fetchHistory(app.client, channel, threadTs);
+			messages = buildConversation(history, text, await getBotUserId(), ts);
+		} catch (error) {
+			console.info("History fetch failed, answering without context:", error);
+			messages = [{ role: "user", content: text }];
+		}
+
 		let reply: string;
 		try {
-			reply = await runAgent(anthropic, ready, text);
+			reply = await runAgent(anthropic, ready, messages);
 		} catch (error) {
 			console.error(`Agent turn failed for user ${userId}:`, error);
 			reply = "Something went wrong on my end. Check the agent logs and try again.";
@@ -103,7 +130,7 @@ export function buildApp(
 			return;
 		}
 		const threadTs = event.thread_ts ?? event.ts;
-		await answer(event.user, event.text ?? "", say, threadTs);
+		await answer(event.user, event.text ?? "", say, event.channel, event.ts, threadTs);
 	});
 
 	app.event("message", async ({ event, say }) => {
@@ -115,7 +142,7 @@ export function buildApp(
 		if ("bot_id" in event && event.bot_id) {
 			return;
 		}
-		await answer(event.user, event.text ?? "", say, undefined);
+		await answer(event.user, event.text ?? "", say, event.channel, event.ts, undefined);
 	});
 
 	return app;

@@ -19,8 +19,8 @@ The demo flow:
    calendar events by calling MCP tools with *your* credentials.
 
 This is a teaching repo, distilled from a production agent. It deliberately has
-no streaming, no memory, no risk tiers, no hot reload. Read it top to bottom in
-one sitting.
+no streaming, no database, no risk tiers, no hot reload. Read it top to bottom
+in one sitting.
 
 ## Architecture
 
@@ -71,8 +71,22 @@ server is the confidential party that holds provider credentials.
 | `src/oauth-provider.ts` | `BaseOAuthClientProvider` subclass: DCR persistence, Slack redirect, routable state |
 | `src/mcp.ts` | One MCP Client per (Slack user, server); connect and callback completion |
 | `src/agent.ts` | The ~100 line Anthropic tool loop |
+| `src/history.ts` | Fetches the recent Slack thread and converts it to Anthropic messages |
 | `src/bot.ts` | Slack handlers and the auth-link message |
 | `src/main.ts` | Runs Express (OAuth callback) and Socket Mode together |
+
+## Conversation memory
+
+The agent keeps no conversation state of its own. On every turn it re-reads
+the last 12 messages of the Slack conversation (the DM, or the channel
+thread) and replays them to Claude. Slack is the transcript: there is
+nothing to persist, nothing to migrate, and follow-up questions keep
+working across restarts.
+
+This needs the `channels:history` bot scope to read channel threads
+(`im:history` already covers DMs). If you created the Slack app before this
+scope was in `manifest.json`, add it and reinstall the app to your
+workspace.
 
 ## Prerequisites
 
