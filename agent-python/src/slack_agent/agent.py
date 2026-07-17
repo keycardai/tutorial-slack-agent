@@ -45,29 +45,28 @@ class ReauthRequired(Exception):
         self.server = server
 
 
-# Substrings that mark a tool result as an authorization failure rather than
-# an ordinary tool error. Kept specific so unrelated errors (or a calendar
-# event literally named "invalid_grant") don't trigger a re-auth loop. The
-# first marker is the exact message get_google_token() raises on the MCP
-# server when the delegated grant is missing.
-_AUTH_FAILURE_MARKERS = (
-    "authentication errors",
-    "no authentication context",
-    "token exchange failed",
-    "invalid_grant",
-    "invalid_token",
-    "access_denied",
-)
+# The exact prefix get_google_token() raises (and the MCP tools return in the
+# "error" field) when the delegated grant is missing/revoked/expired. Anchor on
+# the structured error field, not the rendered text: the server this tutorial
+# ships is Google (Gmail/Calendar/Drive/Docs), where auth-ish strings are
+# ordinary content — a security-alert email, a doc titled "authentication
+# errors runbook" — and must not be mistaken for a real auth failure.
+_AUTH_ERROR_PREFIX = "Authentication errors:"
 
 
-def _looks_like_auth_failure(text: str) -> bool:
-    """True if a tool result reads as a revoked/expired authorization.
+def _is_auth_failure(structured: dict[str, Any] | None) -> bool:
+    """True only for the structured auth-failure shape the MCP tools return.
 
-    The MCP tools return their auth failure as a normal dict (so the MCP
-    result is not flagged isError); we match on the message text instead.
+    The Google tools return failures as {"success": False, "error": ...,
+    "isError": True}; a revoked/expired grant sets "error" to the
+    "Authentication errors: ..." message. Ordinary Google API errors set a
+    different message, and successful results have no top-level "error", so
+    this never fires on real content or on unrelated tool errors.
     """
-    lowered = text.lower()
-    return any(marker in lowered for marker in _AUTH_FAILURE_MARKERS)
+    if not isinstance(structured, dict):
+        return False
+    error = structured.get("error")
+    return isinstance(error, str) and error.startswith(_AUTH_ERROR_PREFIX)
 
 SYSTEM_PROMPT = """\
 You are a helpful assistant living in Slack. Answer concisely in Slack style:
@@ -105,17 +104,24 @@ def _tool_definitions(client: Client, tool_infos: list[Any]) -> tuple[list[dict[
 
 async def _execute_tool(
     client: Client, server: str, tool_name: str, arguments: dict[str, Any]
-) -> tuple[str, bool]:
-    """Run one MCP tool call. Returns (text_result, is_error)."""
+) -> tuple[str, bool, dict[str, Any] | None]:
+    """Run one MCP tool call.
+
+    Returns (text_result, is_error, structured_content). structured_content is
+    the tool's structured return (the dict the Google tools produce) when the
+    MCP result carries one, else None — used to detect an auth failure at the
+    boundary instead of string-matching the rendered text.
+    """
     try:
         result = await client.call_tool(tool_name, arguments, server_name=server)
     except Exception as exc:
         logger.exception("MCP tool call failed: %s/%s", server, tool_name)
-        return f"Error calling {server}/{tool_name}: {type(exc).__name__}: {exc}", True
+        return f"Error calling {server}/{tool_name}: {type(exc).__name__}: {exc}", True, None
 
     text_parts = [c.text for c in result.content if hasattr(c, "text")]
     text = "\n".join(text_parts) if text_parts else "(empty result)"
-    return text, bool(result.isError)
+    structured = getattr(result, "structuredContent", None)
+    return text, bool(result.isError), structured
 
 
 async def run_agent(
@@ -152,12 +158,14 @@ async def run_agent(
                 continue
             server, tool_name = routes[block.name]
             logger.info("tool call: %s/%s", server, tool_name)
-            text, is_error = await _execute_tool(client, server, tool_name, dict(block.input))
-            # The MCP tools report a revoked/expired grant as a normal dict
-            # (so is_error stays False); detect it from the message text and
-            # let the bot re-run OAuth rather than feeding the model an auth
-            # error it can't recover from.
-            if _looks_like_auth_failure(text):
+            text, is_error, structured = await _execute_tool(
+                client, server, tool_name, dict(block.input)
+            )
+            # A revoked/expired grant comes back as a structured error (the tool
+            # returns a dict, so is_error stays False). Detect that specific
+            # shape and let the bot re-run OAuth rather than feeding the model
+            # an auth error it can't recover from.
+            if _is_auth_failure(structured):
                 raise ReauthRequired(server)
             tool_results.append(
                 {

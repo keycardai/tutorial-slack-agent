@@ -92,7 +92,18 @@ async def force_reauth(client: Client, server_name: str) -> list[AuthChallenge]:
         .for_oauth()
         .build()
     )
-    await oauth_storage.delete("tokens")
-    logger.info("Cleared stored token for %s; forcing re-auth", server_name)
+    cleared = await oauth_storage.delete("tokens")
+    if cleared:
+        logger.info("Cleared stored token for %s; forcing re-auth", server_name)
+    else:
+        # No token at the expected key means the storage layout drifted: the
+        # reconnect below won't get a 401 and we'd post a "reconnect" link that
+        # cleared nothing. Surface it instead of silently claiming recovery.
+        logger.warning(
+            "force_reauth: no stored token found for %s at %s — storage layout "
+            "may have changed",
+            server_name,
+            oauth_storage._namespace,
+        )
     await client.connect(server_name, force_reconnect=True)
     return await client.get_auth_challenges(server_name)

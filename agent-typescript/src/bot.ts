@@ -14,7 +14,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import bolt from "@slack/bolt";
-import { runAgent } from "./agent.js";
+import { ReauthRequired, runAgent } from "./agent.js";
 import type { Settings } from "./config.js";
 import { buildConversation, fetchHistory } from "./history.js";
 import { isReady, type McpManager, type ServerSession } from "./mcp.js";
@@ -26,10 +26,11 @@ const MENTION_RE = /<@[A-Z0-9]+>/g;
 
 type Say = (message: { text: string; thread_ts?: string }) => Promise<unknown>;
 
-function formatAuthPrompt(challenges: ServerSession[]): string {
+function formatAuthPrompt(challenges: ServerSession[], intro?: string): string {
 	const lines = [
-		"Before I can help, you need to connect your account(s). " +
-			"Click to authorize (the link is personal to you):",
+		intro ??
+			"Before I can help, you need to connect your account(s). " +
+				"Click to authorize (the link is personal to you):",
 	];
 	for (const challenge of challenges) {
 		if (challenge.authorizationUrl) {
@@ -38,7 +39,7 @@ function formatAuthPrompt(challenges: ServerSession[]): string {
 			lines.push(`• ${challenge.serverKey}: authorization required but no URL was issued`);
 		}
 	}
-	lines.push("When you're done, ask me again.");
+	lines.push("Use this newest link (older ones expire), then ask me again.");
 	return lines.join("\n");
 }
 
@@ -119,6 +120,36 @@ export function buildApp(
 		try {
 			reply = await runAgent(anthropic, ready, messages);
 		} catch (error) {
+			if (error instanceof ReauthRequired) {
+				// A tool failed because the grant was revoked/expired upstream.
+				// Clear the stale token and post a fresh authorization link so
+				// the user can reconnect without us wiping the token store.
+				console.info(`Re-auth required for ${error.serverKey} (user ${userId})`);
+				let session: ServerSession | undefined;
+				try {
+					session = await manager.forceReauth(userId, error.serverKey);
+				} catch (reauthError) {
+					console.error(`forceReauth failed for ${error.serverKey} (user ${userId}):`, reauthError);
+				}
+				if (session && session.status === "needs-auth") {
+					await say({
+						text: formatAuthPrompt(
+							[session],
+							`Your access to *${error.serverKey}* was revoked or expired. ` +
+								"Reconnect to keep going:",
+						),
+						thread_ts: threadTs,
+					});
+				} else {
+					await say({
+						text:
+							`Your access to ${error.serverKey} needs reconnecting, but I ` +
+							"couldn't start the flow. Check the agent logs and try again.",
+						thread_ts: threadTs,
+					});
+				}
+				return;
+			}
 			console.error(`Agent turn failed for user ${userId}:`, error);
 			reply = "Something went wrong on my end. Check the agent logs and try again.";
 		}

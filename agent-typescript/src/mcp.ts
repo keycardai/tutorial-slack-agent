@@ -115,6 +115,44 @@ export class McpManager {
 		return pending;
 	}
 
+	/**
+	 * Drop a stale token and re-run the OAuth flow for one server.
+	 *
+	 * Called when a tool fails because the user's grant was revoked or expired
+	 * upstream. The catch is that the session to the MCP server is still
+	 * healthy (its own token is valid), so it never re-challenges on its own —
+	 * only the delegated token exchange the MCP server does at call time fails.
+	 *
+	 * We delete just this server's stored token (keeping the DCR registration)
+	 * so the next connect gets a fresh 401 -> authorization flow, which
+	 * re-consents the revoked grant. Returns the reconnected session; when it
+	 * comes back "needs-auth" it carries the fresh authorization URL to post.
+	 */
+	async forceReauth(userId: string, serverKey: string): Promise<ServerSession> {
+		const server = this.servers.find((entry) => entry.key === serverKey);
+		if (!server) {
+			throw new Error(`No configured MCP server named ${serverKey}.`);
+		}
+
+		if (this.store.clearTokens(userId, serverKey)) {
+			console.log(`Cleared stored token for ${userId}/${serverKey}; forcing re-auth`);
+		} else {
+			// No token to clear means the next connect won't get a 401 and we'd
+			// post a "reconnect" link that cleared nothing. Surface it instead
+			// of silently claiming recovery.
+			console.warn(`forceReauth: no stored token found for ${userId}/${serverKey}`);
+		}
+
+		const session = await this.connectServer(userId, server);
+		let sessions = this.sessionsByUser.get(userId);
+		if (!sessions) {
+			sessions = new Map();
+			this.sessionsByUser.set(userId, sessions);
+		}
+		sessions.set(serverKey, session);
+		return session;
+	}
+
 	private buildProvider(
 		userId: string,
 		server: ServerEntry,
