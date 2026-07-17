@@ -20,9 +20,14 @@ Three pieces:
 
 from __future__ import annotations
 
+import logging
+
 from keycardai.mcp.client import Client, ClientManager, SQLiteBackend, StarletteAuthCoordinator
+from keycardai.mcp.client.types import AuthChallenge
 
 from slack_agent.config import ServerEntry
+
+logger = logging.getLogger(__name__)
 
 
 def build_manager(
@@ -65,3 +70,29 @@ async def get_user_client(manager: ClientManager, slack_user_id: str) -> Client:
     client = await manager.get_client(context_id_for(slack_user_id))
     await client.connect()
     return client
+
+
+async def force_reauth(client: Client, server_name: str) -> list[AuthChallenge]:
+    """Drop a stale token and re-run the OAuth flow for one server.
+
+    Called when a tool fails because the user's grant was revoked or expired
+    upstream. The catch is that the session to the MCP server is still
+    healthy (its own token is valid), so it never re-challenges on its own —
+    only the delegated token exchange the MCP server does at call time fails.
+
+    We delete just this server's stored token so the next request has no
+    bearer, forcing a fresh 401 -> authorization flow (which re-consents the
+    revoked grant), then reconnect and return the new challenge(s) to post.
+    This is what lets the demo recover without deleting the token database.
+    """
+    oauth_storage = (
+        client.context.storage_path()
+        .for_server(server_name)
+        .for_connection()
+        .for_oauth()
+        .build()
+    )
+    await oauth_storage.delete("tokens")
+    logger.info("Cleared stored token for %s; forcing re-auth", server_name)
+    await client.connect(server_name, force_reconnect=True)
+    return await client.get_auth_challenges(server_name)

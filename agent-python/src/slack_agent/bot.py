@@ -22,10 +22,10 @@ from keycardai.mcp.client.auth.events import CompletionEvent
 from slack_bolt.async_app import AsyncApp
 from slack_sdk.web.async_client import AsyncWebClient
 
-from slack_agent.agent import run_agent
+from slack_agent.agent import ReauthRequired, run_agent
 from slack_agent.config import Settings
 from slack_agent.history import build_conversation, fetch_history
-from slack_agent.mcp import get_user_client, slack_user_from_context
+from slack_agent.mcp import force_reauth, get_user_client, slack_user_from_context
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +67,10 @@ def _session_operational(client, server_name: str | None) -> bool:
     return bool(session and session.is_operational)
 
 
-def _format_auth_prompt(challenges: list[dict]) -> str:
+def _format_auth_prompt(challenges: list[dict], intro: str | None = None) -> str:
     lines = [
-        "Before I can help, you need to connect your account(s). "
+        intro
+        or "Before I can help, you need to connect your account(s). "
         "Click to authorize (the link is personal to you):",
     ]
     for challenge in challenges:
@@ -79,7 +80,7 @@ def _format_auth_prompt(challenges: list[dict]) -> str:
             lines.append(f"• <{url}|Connect {server}>")
         else:
             lines.append(f"• {server}: authorization required but no URL was issued")
-    lines.append("When you're done, ask me again.")
+    lines.append("Use this newest link (older ones expire), then ask me again.")
     return "\n".join(lines)
 
 
@@ -139,6 +140,32 @@ def build_app(settings: Settings, manager: ClientManager, anthropic: AsyncAnthro
 
         try:
             reply = await run_agent(anthropic, client, messages)
+        except ReauthRequired as exc:
+            # A tool failed because the grant was revoked/expired upstream.
+            # Clear the stale token and post a fresh authorization link so
+            # the user can reconnect without us wiping the token database.
+            logger.info("Re-auth required for %s (user %s)", exc.server, user_id)
+            try:
+                challenges = await force_reauth(client, exc.server)
+            except Exception:
+                logger.exception("force_reauth failed for %s (user %s)", exc.server, user_id)
+                challenges = []
+            if challenges:
+                await say(
+                    text=_format_auth_prompt(
+                        challenges,
+                        intro=f"Your access to *{exc.server}* was revoked or expired. "
+                        "Reconnect to keep going:",
+                    ),
+                    thread_ts=thread_ts,
+                )
+            else:
+                await say(
+                    text=f"Your access to {exc.server} needs reconnecting, but I "
+                    "couldn't start the flow. Check the agent logs and try again.",
+                    thread_ts=thread_ts,
+                )
+            return
         except Exception:
             logger.exception("Agent turn failed for user %s", user_id)
             reply = "Something went wrong on my end. Check the agent logs and try again."

@@ -28,6 +28,47 @@ MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 10
 
+
+class ReauthRequired(Exception):
+    """A tool failed because the user's authorization is no longer valid.
+
+    Revoking a grant in Keycard (or an expired upstream grant) kills the
+    delegated token exchange the MCP server does at call time, while the
+    client's own session to the MCP server stays connected. So the session
+    still looks operational and no auth challenge fires; the only signal is
+    the failure inside the tool result. The bot catches this to re-run the
+    OAuth flow for the named server.
+    """
+
+    def __init__(self, server: str) -> None:
+        super().__init__(f"Re-authorization required for {server}")
+        self.server = server
+
+
+# Substrings that mark a tool result as an authorization failure rather than
+# an ordinary tool error. Kept specific so unrelated errors (or a calendar
+# event literally named "invalid_grant") don't trigger a re-auth loop. The
+# first marker is the exact message get_google_token() raises on the MCP
+# server when the delegated grant is missing.
+_AUTH_FAILURE_MARKERS = (
+    "authentication errors",
+    "no authentication context",
+    "token exchange failed",
+    "invalid_grant",
+    "invalid_token",
+    "access_denied",
+)
+
+
+def _looks_like_auth_failure(text: str) -> bool:
+    """True if a tool result reads as a revoked/expired authorization.
+
+    The MCP tools return their auth failure as a normal dict (so the MCP
+    result is not flagged isError); we match on the message text instead.
+    """
+    lowered = text.lower()
+    return any(marker in lowered for marker in _AUTH_FAILURE_MARKERS)
+
 SYSTEM_PROMPT = """\
 You are a helpful assistant living in Slack. Answer concisely in Slack style:
 plain text, short paragraphs, no markdown headers.
@@ -112,6 +153,12 @@ async def run_agent(
             server, tool_name = routes[block.name]
             logger.info("tool call: %s/%s", server, tool_name)
             text, is_error = await _execute_tool(client, server, tool_name, dict(block.input))
+            # The MCP tools report a revoked/expired grant as a normal dict
+            # (so is_error stays False); detect it from the message text and
+            # let the bot re-run OAuth rather than feeding the model an auth
+            # error it can't recover from.
+            if _looks_like_auth_failure(text):
+                raise ReauthRequired(server)
             tool_results.append(
                 {
                     "type": "tool_result",
