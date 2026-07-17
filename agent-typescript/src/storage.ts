@@ -38,6 +38,26 @@ export class FileAuthStore {
 		this.update(userId, serverKey, { tokens });
 	}
 
+	/**
+	 * Delete just this user/server's tokens, keeping the DCR client
+	 * registration so the next connect reuses it. Returns whether a token was
+	 * actually removed — false means nothing was stored, so a caller forcing
+	 * re-auth would get no 401 and should say so rather than claim recovery.
+	 */
+	clearTokens(userId: string, serverKey: string): boolean {
+		const all = this.readAll();
+		const key = this.key(userId, serverKey);
+		const existing = isRecord(all[key]) ? (all[key] as AuthRecord) : undefined;
+		if (!existing || existing.tokens === undefined) {
+			return false;
+		}
+		const next: AuthRecord = { ...existing };
+		delete next.tokens;
+		all[key] = next;
+		this.writeAll(all);
+		return true;
+	}
+
 	getCodeVerifier(userId: string, serverKey: string): string | undefined {
 		return this.record(userId, serverKey).codeVerifier;
 	}

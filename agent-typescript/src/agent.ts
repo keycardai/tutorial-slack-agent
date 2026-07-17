@@ -36,8 +36,48 @@ interface ToolRoute {
 	toolName: string;
 }
 
+/**
+ * Thrown when a tool fails because the user's authorization is no longer
+ * valid. Revoking a grant in Keycard (or an expired upstream grant) kills the
+ * delegated token exchange the MCP server does at call time, while the
+ * client's own session to the MCP server stays connected — so no 401 fires
+ * and the only signal is the failure inside the tool result. The bot catches
+ * this to re-run the OAuth flow for the named server.
+ */
+export class ReauthRequired extends Error {
+	constructor(readonly serverKey: string) {
+		super(`Re-authorization required for ${serverKey}`);
+		this.name = "ReauthRequired";
+	}
+}
+
+// The exact prefix the Google MCP server returns in the "error" field when the
+// delegated grant is missing/revoked/expired. Anchor on the structured error
+// field, not the rendered text: the server this tutorial ships is Google
+// (Gmail/Calendar/Drive/Docs), where auth-ish strings are ordinary content —
+// a security-alert email, a doc titled "authentication errors runbook" — and
+// must not be mistaken for a real auth failure.
+const AUTH_ERROR_PREFIX = "Authentication errors:";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * True only for the structured auth-failure shape the MCP tools return.
+ *
+ * The Google tools return failures as { success: false, error, isError: true };
+ * a revoked/expired grant sets "error" to the "Authentication errors: ..."
+ * message. Ordinary API errors set a different message, and successful results
+ * have no top-level "error", so this never fires on real content or on
+ * unrelated tool errors.
+ */
+function isAuthFailure(structured: unknown): boolean {
+	if (!isRecord(structured)) {
+		return false;
+	}
+	const error = structured.error;
+	return typeof error === "string" && error.startsWith(AUTH_ERROR_PREFIX);
 }
 
 /**
@@ -69,11 +109,16 @@ async function collectTools(
 	return { definitions, routes };
 }
 
-/** Run one MCP tool call. Returns the text result and an error flag. */
+/**
+ * Run one MCP tool call. Returns the text result, an error flag, and the
+ * tool's structured content (the dict the Google tools produce) when present —
+ * used to detect an auth failure at the boundary instead of string-matching
+ * the rendered text.
+ */
 async function executeTool(
 	route: ToolRoute,
 	args: Record<string, unknown>,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; structured: unknown }> {
 	const { session, toolName } = route;
 	let result: Awaited<ReturnType<typeof session.client.callTool>>;
 	try {
@@ -81,7 +126,11 @@ async function executeTool(
 	} catch (error) {
 		console.error(`MCP tool call failed: ${session.serverKey}/${toolName}`, error);
 		const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-		return { text: `Error calling ${session.serverKey}/${toolName}: ${detail}`, isError: true };
+		return {
+			text: `Error calling ${session.serverKey}/${toolName}: ${detail}`,
+			isError: true,
+			structured: undefined,
+		};
 	}
 
 	const content: unknown = result.content;
@@ -96,6 +145,7 @@ async function executeTool(
 	return {
 		text: parts.length > 0 ? parts.join("\n") : "(empty result)",
 		isError: result.isError === true,
+		structured: result.structuredContent,
 	};
 }
 
@@ -153,7 +203,14 @@ export async function runAgent(
 			}
 			console.log(`tool call: ${route.session.serverKey}/${route.toolName}`);
 			const args = isRecord(block.input) ? block.input : {};
-			const { text, isError } = await executeTool(route, args);
+			const { text, isError, structured } = await executeTool(route, args);
+			// A revoked/expired grant comes back as a structured error (the tool
+			// returns a dict, so isError stays false). Detect that specific
+			// shape and let the bot re-run OAuth rather than feeding the model
+			// an auth error it can't recover from.
+			if (isAuthFailure(structured)) {
+				throw new ReauthRequired(route.session.serverKey);
+			}
 			toolResults.push({
 				type: "tool_result",
 				tool_use_id: block.id,
