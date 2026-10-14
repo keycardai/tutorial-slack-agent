@@ -64,4 +64,5 @@ Each service's own README covers its configuration and troubleshooting.
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE). The Keycard name and logo are trademarks;
+[TRADEMARKS.md](./TRADEMARKS.md) states how they may be used.
